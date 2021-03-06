@@ -11,36 +11,38 @@ from torchvision.utils import make_grid
 import os
 import shutil
 from IPython import get_ipython
+import wandb
 
+wandb.init(project="gans", entity="rohitkuk")
 
 shutil.rmtree("logs") if os.path.isdir("logs") else ""
 
 # Hyper Paramerts
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-NUM_EPOCHS   = 20
+NUM_EPOCHS   = 5
 NOISE_DIM    = 100
 IMG_DIM      = 64
 lr           = 2e-4
 BATCH_SIZE   = 128
 MAPS_GEN     = 64
 MAPS_DISC    = 64
-IMG_CHANNELS = 1
-FIXED_NOISE  = torch.randn(32, NOISE_DIM, 1, 1).to(DEVICE)
+IMG_CHANNELS = 3
+FIXED_NOISE  = torch.randn(64, NOISE_DIM, 1, 1).to(DEVICE)
 
 
 # Transforms
 Trasforms = transforms.Compose([
     transforms.Resize(IMG_DIM),
+    transforms.CenterCrop(IMG_DIM),
     transforms.ToTensor(),
     transforms.Normalize(
-        mean = [0.5 for i in range(IMG_CHANNELS)],
-        std  = [0.5 for i in range(IMG_CHANNELS)]
-    )
-])
+        (0.5, 0.5, 0.5),
+        (0.5, 0.5, 0.5))
+    ])
 
 
 # Data Loaders
-train_dataset = datasets.MNIST(root = 'dataset', download=True, transform=Trasforms)
+train_dataset = datasets.ImageFolder(root = 'img_align_celeba', transform=Trasforms)
 train_loader   = DataLoader(train_dataset, batch_size = BATCH_SIZE, shuffle=True, drop_last=True)
 
 
@@ -53,6 +55,9 @@ discremenator = Discrimiator(num_channels=IMG_CHANNELS, maps=MAPS_DISC).to(DEVIC
 initialize_wieghts(generator)
 initialize_wieghts(discremenator)
 
+# discremenator.apply(initialize_wieghts)
+# generator.apply(initialize_wieghts)
+
 
 # Loss and Optimizers
 gen_optim = optim.Adam(params = generator.parameters(), lr=lr, betas=(0.5, 0.999))
@@ -63,6 +68,9 @@ criterion = nn.BCELoss()
 # Tensorboard Implementation
 writer_real = SummaryWriter(f"logs/real")
 writer_fake = SummaryWriter(f"logs/fake")
+
+wandb.watch(generator)
+wandb.watch(discremenator)
 
 
 # Code for COLLAB TENSORBOARD VIEW
@@ -120,4 +128,9 @@ for epoch in range(1, NUM_EPOCHS+1):
 
             writer_real.add_image("Real", img_grid_real, global_step=step)
             writer_fake.add_image("Fake", img_grid_fake, global_step=step)
+            wandb.log({"Discremenator Loss": disc_loss.item(), "Generator Loss": gen_loss.item()})
+            wandb.log({"img": [wandb.Image(img_grid_fake, caption=step)]})
             step +=1 
+            torch.save(generator.state_dict(), os.path.join(wandb.run.dir, 'dc_gan_model_gen.pt'))
+            torch.save(discremenator.state_dict(), os.path.join(wandb.run.dir, 'dc_gan_model_disc.pt'))
+
